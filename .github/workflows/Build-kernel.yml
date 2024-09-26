@@ -1,72 +1,88 @@
 name: Build Linux Kernel
 
+# Trigger: This action will run whenever there's a push to the 'main' branch or a pull request to 'main'.
 on:
   push:
     branches:
-      - main  # Adjust to your branch name
+      - main  # Change this to your main development branch, like 'master' or 'dev'
   pull_request:
     branches:
       - main
 
 jobs:
+  # First job: Build the kernel
   build:
     name: Build Kernel
+    # GitHub-hosted runner using Ubuntu
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      # Step 1: Checkout the repository to access your source code.
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    - name: Set up dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev
+      # Step 2: Set up necessary dependencies for building the Linux kernel.
+      - name: Set up dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev
+        # These are the packages needed for kernel compilation (gcc, make, etc.)
 
-    - name: Build Kernel
-      run: |
-        make defconfig
-        make -j$(nproc)
+      # Step 3: Configure and compile the kernel. This example uses 'defconfig' for basic configuration and starts the build.
+      - name: Build Kernel
+        run: |
+          make defconfig  # Default config file for the kernel
+          make -j$(nproc)  # Build using all available CPU cores
 
-    - name: Archive the build artifacts
-      run: |
-        tar -czvf kernel-build.tar.gz arch/x86/boot/bzImage
-      continue-on-error: true
+      # Step 4: Archive the build output (bzImage is the typical kernel binary).
+      - name: Archive the build artifacts
+        run: |
+          tar -czvf kernel-build.tar.gz arch/x86/boot/bzImage
+        # bzImage is the compiled kernel file for x86 architectures. You may need to adjust this depending on your architecture.
+        continue-on-error: true  # Prevents the workflow from failing if this step has issues (optional).
 
-    - name: Upload Kernel Artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: kernel-build
-        path: kernel-build.tar.gz
+      # Step 5: Upload the kernel as an artifact to GitHub. This keeps it stored between jobs.
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: kernel-build
+          path: kernel-build.tar.gz
 
+  # Second job: Release the built kernel
   release:
     name: Release Kernel
+    # This job will only run if the "build" job finishes successfully.
     needs: build
     runs-on: ubuntu-latest
+
+    # This job runs only when there's a push to the 'main' branch (i.e., an actual release, not a pull request).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-    - name: Download build artifact
-      uses: actions/download-artifact@v3
-      with:
-        name: kernel-build
+      # Step 1: Download the artifact from the previous build job.
+      - name: Download build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: kernel-build
 
-    - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ github.run_number }}
-        release_name: Kernel Build v${{ github.run_number }}
-        draft: false
-        prerelease: false
+      # Step 2: Create a new GitHub release. A release tag will be generated automatically using the run number.
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub token is automatically provided for authentication.
+        with:
+          tag_name: v${{ github.run_number }}  # A version tag like 'v1', 'v2', etc.
+          release_name: Kernel Build v${{ github.run_number }}
+          draft: false  # This means the release will be public.
+          prerelease: false
 
-    - name: Upload Kernel to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: kernel-build.tar.gz
-        asset_name: kernel-build.tar.gz
-        asset_content_type: application/gzip
-        
+      # Step 3: Upload the kernel artifact to the release.
+      - name: Upload Kernel to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Authentication for uploading to the release
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}  # URL from the previous step's release
+          asset_path: kernel-build.tar.gz  # The archived kernel artifact
+          asset_name: kernel-build.tar.gz  # The name you want it to have in the release
+          asset_content_type: application/gzip  # The MIME type of the file
